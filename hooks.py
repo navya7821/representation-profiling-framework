@@ -1,27 +1,43 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class FeatureExtractor:
-    def __init__(self, model: nn.Module, layers: list):
+    def __init__(self, model: nn.Module, layers: list, processing: str = "none"):
         """
         model: PyTorch model
         layers: list of layer names (strings) to hook
+        processing:
+            "none"   → raw features
+            "flatten" → flatten to (B, -1)
+            "gap"    → global average pooling to (B, C)
         """
         self.model = model
         self.layers = layers
+        self.processing = processing
+
         self.features = {}
         self.handles = []
 
         self._register_hooks()
 
     def _get_layer_dict(self):
-        """Map layer names to modules"""
         return dict(self.model.named_modules())
+
+    def _process(self, x):
+        if self.processing == "none":
+            return x
+        elif self.processing == "flatten":
+            return x.view(x.size(0), -1)
+        elif self.processing == "gap":
+            return F.adaptive_avg_pool2d(x, (1, 1)).view(x.size(0), -1)
+        else:
+            raise ValueError(f"Unknown processing: {self.processing}")
 
     def _hook_fn(self, name):
         def hook(module, input, output):
-            self.features[name] = output.detach()
+            self.features[name] = self._process(output.detach())
         return hook
 
     def _register_hooks(self):
@@ -37,34 +53,36 @@ class FeatureExtractor:
             self.handles.append(handle)
 
     def clear(self):
-        """Clear stored features before forward pass"""
         self.features = {}
 
     def remove_hooks(self):
-        """Remove all hooks"""
         for handle in self.handles:
             handle.remove()
         self.handles = []
 
     def __call__(self, x):
-        """
-        Run forward pass and collect features
-        """
         self.clear()
         _ = self.model(x)
         return self.features
-    
-def main():
-    import torchvision.models as models
-    from torchvision.models import resnet18, ResNet18_Weights
-    model = resnet18(weights=ResNet18_Weights.DEFAULT)
 
+
+# -------------------- MAIN TEST --------------------
+
+if __name__ == "__main__":
+    from torchvision.models import resnet18, ResNet18_Weights
+
+    model = resnet18(weights=ResNet18_Weights.DEFAULT)
     model.eval()
+
     layers = ["layer1", "layer2", "layer3", "layer4"]
-    extractor = FeatureExtractor(model, layers)
+
+    # try different processing modes
+    extractor = FeatureExtractor(model, layers, processing="flatten")
+
     x = torch.randn(1, 3, 224, 224)
     features = extractor(x)
+
     for k, v in features.items():
         print(k, v.shape)
-        
-main()
+
+    extractor.remove_hooks()
