@@ -21,8 +21,7 @@ def main():
             {"name": "blur", "params": {}},
             {"name": "brightness", "params": {}},
         ],
-        "mode": "individual",   # IMPORTANT
-        "top_k": 2,
+        "mode": "individual",
         "processing": "flatten",
         "input": torch.rand(1, 3, 224, 224),
     }
@@ -30,8 +29,11 @@ def main():
     # -------------------- RUN PROFILER --------------------
     results = model_profile_under_augmentation(model, config)
 
+    # Extract dataframe (new system)
+    df = results["dataframe"]
+
     # -------------------- BUILD REPORT --------------------
-    report = build_report(results)
+    report = build_report(df)
 
     # -------------------- OUTPUT --------------------
     print_report(report)
