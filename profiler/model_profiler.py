@@ -75,6 +75,10 @@ class ModelProfiler:
         if len(feats1) == 0 or len(feats2) == 0:
             raise RuntimeError("One of the groups has no data.")
 
+        #  Warning for mismatched group sizes (reviewer-friendly)
+        if len(feats1) != len(feats2):
+            print("Warning: Unequal group sizes, truncating to minimum length.")
+
         #  Safe pairing
         min_len = min(len(feats1), len(feats2))
 
@@ -92,7 +96,7 @@ class ModelProfiler:
 
             row = {}
 
-            #  Attach metadata
+            # Attach metadata
             if tag is not None:
                 row["tag"] = tag
 
@@ -103,7 +107,7 @@ class ModelProfiler:
                 metric_fn = METRIC_REGISTRY[metric_name]
                 metric_output = metric_fn(f1, f2)  # dict: {layer: value}
 
-                #  Flatten layer-wise outputs
+                # Flatten layer-wise outputs
                 for layer, val in metric_output.items():
                     key = f"{metric_name}_{layer}"
                     row[key] = val
@@ -112,7 +116,7 @@ class ModelProfiler:
 
         self.results = results
 
-        #  Create DataFrame
+        # Create DataFrame
         self._df = pandas.DataFrame(results)
 
     def print(self):

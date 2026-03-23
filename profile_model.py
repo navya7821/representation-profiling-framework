@@ -1,7 +1,7 @@
 import torch
 from torchvision.models import resnet18, ResNet18_Weights
 
-from profiler.engine import model_profile_under_augmentation
+from profiler.api import model_profile_under_augmentation
 from profiler.report import build_report, print_report, save_report
 from profiler.utils import set_seed
 
@@ -27,10 +27,10 @@ def main():
     }
 
     # -------------------- RUN PROFILER --------------------
-    results = model_profile_under_augmentation(model, config)
+    profiler = model_profile_under_augmentation(model, config)
 
-    # Extract dataframe (new system)
-    df = results["dataframe"]
+    # Extract dataframe
+    df = profiler.df
 
     # -------------------- BUILD REPORT --------------------
     report = build_report(df)
