@@ -1,61 +1,50 @@
 import json
 
 
-def build_report(results):
+def build_report(df):
     """
-    Takes raw results from engine and returns structured report (dict)
+    Build a structured report from profiler DataFrame.
+
+    Args:
+        df: pandas DataFrame from ModelProfiler (p.df)
+
+    Returns:
+        dict grouped by augmentation (tag)
     """
+    if df is None or len(df) == 0:
+        return {}
+
     report = {}
 
-    for aug_name, data in results.items():
-        report[aug_name] = {
-            "top_sensitive_layers": data["top_sensitive_layers"],
-            "sensitivity": data["sensitivity"],
-            "stability": data["stability"],
-            "embedding_robustness": data["embedding_robustness"],
-        }
+    # group by augmentation tag
+    if "tag" in df.columns:
+        grouped = df.groupby("tag")
+    else:
+        # fallback if no tags present
+        grouped = [("no_tag", df)]
+
+    for tag, group in grouped:
+        # average across rows for that augmentation
+        mean_vals = group.mean(numeric_only=True).to_dict()
+
+        report[tag] = mean_vals
 
     return report
 
 
 def print_report(report):
     """
-    Clean console output (replaces messy prints in main.py)
+    Clean console output
     """
-    for aug_name, data in report.items():
-        print(f"\n=== AUGMENTATION: {aug_name} ===")
+    if not report:
+        print("No report data available.")
+        return
 
-        print("\nTop Sensitive Layers:")
-        for layer in data["top_sensitive_layers"]:
-            print(f"  - {layer}")
+    for tag, metrics in report.items():
+        print(f"\n=== AUGMENTATION: {tag} ===")
 
-        print("\nSensitivity:")
-        for layer, vals in data["sensitivity"].items():
-            print(
-                f"  {layer}: "
-                f"CKA={vals['cka']:.4f}, "
-                f"L2_norm={vals['l2_normalised']:.4f}, "
-                f"Score={vals['score']:.4f}"
-            )
-
-        print("\nStability:")
-        for layer, vals in data["stability"].items():
-            gram_val = (
-                f"{vals['gram']:.4f}" if vals["gram"] is not None else "N/A"
-            )
-            print(
-                f"  {layer}: "
-                f"Cosine={vals['cosine']:.4f}, "
-                f"Gram={gram_val}"
-            )
-
-        r = data["embedding_robustness"]
-        print("\nEmbedding Robustness:")
-        print(
-            f"  Cosine={r['cosine']:.4f}, "
-            f"L2_norm={r['l2_normalised']:.4f}, "
-            f"Score={r['score']:.4f}"
-        )
+        for key, value in metrics.items():
+            print(f"  {key}: {value:.4f}")
 
 
 def save_report(report, path="report.json"):

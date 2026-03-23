@@ -8,7 +8,11 @@ def set_seed(seed: int = 42):
     Set all random seeds for reproducibility
     """
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+
+    #  Safe CUDA handling
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
     random.seed(seed)
     np.random.seed(seed)
 
@@ -19,17 +23,24 @@ def set_seed(seed: int = 42):
 
 def ensure_tensor(x):
     """
-    Ensures input is a torch tensor
+    Ensures input is a torch tensor.
+    Converts numpy arrays to tensors.
     """
     if isinstance(x, torch.Tensor):
         return x
-    raise TypeError("Input must be a torch.Tensor")
+
+    if isinstance(x, np.ndarray):
+        return torch.from_numpy(x)
+
+    raise TypeError(f"Unsupported input type: {type(x)}. Expected torch.Tensor or numpy.ndarray.")
 
 
 def to_device(x, device):
     """
-    Move tensor to device
+    Move tensor to device.
+    If input is not a tensor, it is returned unchanged.
     """
     if isinstance(x, torch.Tensor):
         return x.to(device)
+
     return x

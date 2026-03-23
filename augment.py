@@ -3,7 +3,9 @@ import kornia.augmentation as K
 
 
 AUGMENTATION_REGISTRY = {
-    "rotation": lambda cfg: K.RandomRotation(degrees=cfg.get("degrees", 15.0), p=1.0),
+    "rotation": lambda cfg: K.RandomRotation(
+        degrees=cfg.get("degrees", 15.0), p=1.0
+    ),
     "blur": lambda cfg: K.RandomGaussianBlur(
         kernel_size=cfg.get("kernel_size", (3, 3)),
         sigma=cfg.get("sigma", (0.1, 2.0)),
@@ -31,6 +33,8 @@ class AugmentationPipeline:
             "individual" → apply each augmentation separately
         """
         self.mode = mode
+
+        # 🔹 store (name, module) pairs for consistency
         self.augmentations = []
 
         if augmentations_config is None:
@@ -47,20 +51,31 @@ class AugmentationPipeline:
             if name not in AUGMENTATION_REGISTRY:
                 raise ValueError(f"Unknown augmentation: {name}")
 
-            self.augmentations.append(AUGMENTATION_REGISTRY[name](params))
+            module = AUGMENTATION_REGISTRY[name](params)
+            self.augmentations.append((name, module))
 
+        # 🔹 sequential pipeline (modules only)
         if self.mode == "sequential":
-            self.pipeline = torch.nn.Sequential(*self.augmentations)
+            modules = [module for _, module in self.augmentations]
+            self.pipeline = torch.nn.Sequential(*modules)
 
     def __call__(self, x):
+        """
+        Applies augmentations to input tensor x
+        Assumes x is already on correct device
+        """
+
         if self.mode == "sequential":
-            return {"combined": self.pipeline(x)}
+            # 🔹 create meaningful combined name
+            combined_name = "+".join([name for name, _ in self.augmentations])
+            return {combined_name: self.pipeline(x)}
 
         elif self.mode == "individual":
             outputs = {}
-            for i, aug in enumerate(self.augmentations):
-                key = aug.__class__.__name__
-                outputs[key] = aug(x)
+
+            for name, aug in self.augmentations:
+                outputs[name] = aug(x)
+
             return outputs
 
         else:

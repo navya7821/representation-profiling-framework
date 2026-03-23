@@ -4,14 +4,15 @@ import torch.nn.functional as F
 
 
 class FeatureExtractor:
-    def __init__(self, model: nn.Module, layers: list, processing: str = "none"):
+    def __init__(self, model: nn.Module, layers: list = None, processing: str = "none"):
         """
         model: PyTorch model
         layers: list of layer names (strings) to hook
+                if None → hooks all layers
         processing:
-            "none"   → raw features
+            "none"    → raw features
             "flatten" → flatten to (B, -1)
-            "gap"    → global average pooling to (B, C)
+            "gap"     → global average pooling (if applicable)
         """
         self.model = model
         self.layers = layers
@@ -28,20 +29,37 @@ class FeatureExtractor:
     def _process(self, x):
         if self.processing == "none":
             return x
+
         elif self.processing == "flatten":
             return x.view(x.size(0), -1)
+
         elif self.processing == "gap":
-            return F.adaptive_avg_pool2d(x, (1, 1)).view(x.size(0), -1)
+            # apply GAP only if feature map is 4D
+            if x.dim() == 4:
+                return F.adaptive_avg_pool2d(x, (1, 1)).view(x.size(0), -1)
+            else:
+                # fallback to flatten for non-CNN layers
+                return x.view(x.size(0), -1)
+
         else:
             raise ValueError(f"Unknown processing: {self.processing}")
 
     def _hook_fn(self, name):
         def hook(module, input, output):
-            self.features[name] = self._process(output.detach())
+            # ensure no gradient tracking + safe storage
+            if isinstance(output, torch.Tensor):
+                self.features[name] = self._process(output.detach())
         return hook
 
     def _register_hooks(self):
         layer_dict = self._get_layer_dict()
+
+        # 🔹 Auto-select all layers if None
+        if self.layers is None:
+            self.layers = [
+                name for name in layer_dict.keys()
+                if name != ""  # skip root module
+            ]
 
         for name in self.layers:
             if name not in layer_dict:
@@ -60,9 +78,18 @@ class FeatureExtractor:
             handle.remove()
         self.handles = []
 
-    def __call__(self, x):
+    def __call__(self, **inputs):
+        """
+        Supports:
+            model(x=...)
+            model(input=...)
+            model(**kwargs)
+        """
         self.clear()
-        _ = self.model(x)
+
+        with torch.no_grad():
+            _ = self.model(**inputs)
+
         return self.features
 
 
@@ -74,13 +101,11 @@ if __name__ == "__main__":
     model = resnet18(weights=ResNet18_Weights.DEFAULT)
     model.eval()
 
-    layers = ["layer1", "layer2", "layer3", "layer4"]
-
-    # try different processing modes
-    extractor = FeatureExtractor(model, layers, processing="flatten")
+    # Test with automatic layer selection
+    extractor = FeatureExtractor(model, layers=None, processing="flatten")
 
     x = torch.randn(1, 3, 224, 224)
-    features = extractor(x)
+    features = extractor(x=x)
 
     for k, v in features.items():
         print(k, v.shape)

@@ -1,78 +1,53 @@
 import torch
 
 from augment import AugmentationPipeline
-from hooks import FeatureExtractor
-
-from profiler.metrics import (
-    compute_sensitivity,
-    compute_stability,
-    compute_embedding_robustness,
-)
+from profiler.model_profiler import ModelProfiler
 
 
 def model_profile_under_augmentation(model, config):
     """
-    Core pipeline:
-    - apply augmentations
-    - extract features
-    - compute metrics
-    - return structured results
+    Wrapper API:
+    Keeps your original behavior but uses the new generic profiler internally
     """
 
     model.eval()
 
     # -------------------- CONFIG --------------------
 
-    layers = config["layers"]
+    layers = config.get("layers", None)
     augment_config = config.get("augmentations", None)
     mode = config.get("mode", "individual")
-    top_k = config.get("top_k", 2)
     processing = config.get("processing", "flatten")
+    metrics = config.get("metrics", ["cosine", "linear"])
 
-    # -------------------- COMPONENTS --------------------
+    x = config["input"]
 
-    extractor = FeatureExtractor(model, layers, processing=processing)
+    # -------------------- AUGMENTATION --------------------
+
     augmenter = AugmentationPipeline(augment_config, mode=mode)
-
-    # -------------------- INPUT --------------------
-
-    x = config["input"]  # tensor expected
-
-    # -------------------- ORIGINAL FEATURES --------------------
-
-    features = extractor(x)
-
-    # -------------------- AUGMENTED FEATURES --------------------
-
     aug_outputs = augmenter(x)
 
-    results = {}
+    # -------------------- PROFILING --------------------
 
-    # -------------------- LOOP OVER AUGMENTATIONS --------------------
+    with ModelProfiler(model, layers=layers, processing=processing) as p:
 
-    for aug_name, x_aug in aug_outputs.items():
+        #  Ensure 1-to-1 pairing and track augmentation names
+        for aug_name, x_aug in aug_outputs.items():
 
-        features_aug = extractor(x_aug)
+            # original → group_a (no tag needed)
+            p(x=x, group="group_a", tag=None)
 
-        # ---------- SENSITIVITY ----------
-        sensitivity, sensitive_layers = compute_sensitivity(
-            features, features_aug, top_k=top_k
+            # augmented → group_b (attach augmentation name)
+            p(x=x_aug, group="group_b", tag=aug_name)
+
+        # compute metrics
+        p.compute(
+            metrics=metrics,
+            groups=["group_a", "group_b"]
         )
 
-        # ---------- STABILITY ----------
-        stability = compute_stability(
-            features, features_aug, sensitive_layers
-        )
-
-        # ---------- EMBEDDING ROBUSTNESS ----------
-        robustness = compute_embedding_robustness(model, x, x_aug)
-
-        # ---------- STORE ----------
-        results[aug_name] = {
-            "sensitivity": sensitivity,
-            "top_sensitive_layers": sensitive_layers,
-            "stability": stability,
-            "embedding_robustness": robustness,
+        return {
+            "raw_results": p.results,
+            "dataframe": p.df,
+            "num_augmentations": len(aug_outputs),
         }
-
-    return results
